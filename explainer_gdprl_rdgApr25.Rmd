@@ -1,0 +1,361 @@
+---
+title: "Explainer Nowcasting GDP"
+author: "Ginanjar Utama - Bank Indonesia"
+date: "dibuat pada `r format(Sys.time(), '%d %B, %Y   %H:%M')`"
+output:
+  html_document: default
+  word_document: default
+  pdf_document: 
+    latex_engine: xelatex
+always_allow_html: yes
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(DALEX)
+library(DALEXtra)
+library(tidyflow)
+library(tidymodels)
+library(modelDown)
+
+```
+
+
+
+
+```{r}
+
+train_data <- pull_tflow_training(elnet_fit) 
+
+
+explainer_elnet <- explain_tidymodels(elnet_fit$fit$fit$wflow, data = train_data  %>% select(-gdprl),
+                     y = train_data$gdprl, label = "Elastic Net") 
+explainer_rf <- explain_tidymodels(rf_fit$fit$fit$wflow, data = train_data  %>% select(-gdprl),
+                     y = train_data$gdprl, label = "Random Forest") 
+explainer_bt <- explain_tidymodels(bt_fit$fit$fit$wflow, data = train_data  %>% select(-gdprl),
+                     y = train_data$gdprl, label = "XGBoost") 
+explainer_svm <- explain_tidymodels(svm_fit$fit$fit$wflow, data = train_data  %>% select(-gdprl),
+                     y = train_data$gdprl, label = "SVR") 
+
+resids_elnet <- model_performance(explainer_elnet)
+resids_rf <- model_performance(explainer_rf)
+resids_bt <- model_performance(explainer_bt)
+resids_svm <- model_performance(explainer_svm)
+
+p1 <- plot(resids_elnet, resids_rf, resids_bt, resids_svm )
+p2 <- plot(resids_elnet, resids_rf, resids_bt, resids_svm , geom = "boxplot")
+
+p1 + p2
+
+```
+
+```{r, eval=FALSE, include=FALSE}
+modelDown(
+  explainer_elnet, explainer_rf, explainer_bt, explainer_svm, 
+  modules = c("auditor", "drifter", "model_performance", "variable_importance",
+    "variable_response"),
+  output_folder = "output_des22e",
+  repository_name = "repository",
+  should_open_website = interactive()
+)
+```
+
+```{r}
+vip_elnet <- variable_importance(explainer_elnet, loss_function = loss_root_mean_square)
+vip_rf <- variable_importance(explainer_rf, loss_function = loss_root_mean_square)
+vip_bt <- variable_importance(explainer_bt, loss_function = loss_root_mean_square)
+vip_svm <- variable_importance(explainer_svm, loss_function = loss_root_mean_square)
+
+plot(vip_bt, vip_elnet, vip_rf, vip_svm, max_vars = 10)
+
+plot(vip_bt)
+plot(vip_elnet)
+plot(vip_rf)
+plot(vip_svm)
+
+
+f_bt <- plot(vip_bt) + labs(subtitle = "")
+f_elnet <- plot(vip_elnet) + labs(subtitle = "")
+f_rf <- plot(vip_rf) + labs(subtitle = "")
+f_svm <- plot(vip_svm) + labs(subtitle = "")
+
+#(plot(vip_bt)+ plot(vip_elnet)) /( plot(vip_rf) + plot(vip_svm))
+
+(f_bt + f_elnet) / (f_rf + f_svm)
+
+
+
+
+```
+
+```{r}
+var_labels <- c(
+  "purchdurableidx" = "Purchase Durable Idx",
+  "othergoods"      = "Other Goods Idx",
+  "clothinggoods"   = "Clothing Goods Idx",
+  "vehicleparts"    = "Vehicle Parts Idx",
+  "pmi"             = "PMI",
+  "infocomequip"    = "InfoComm Equip Idx",
+  "currincomeidx"   = "Current Income Idx",
+  "foodbeverages"   = "Food & Beverages Idx",
+  "consconfidx"     = "Consumer Confidence Idx",
+  "curreconidx"     = "Current Economic Idx"
+  #  'intercept' and 'prediction' intentionally omitted
+)
+```
+
+
+```{r}
+relabel_vip <- function(vip) {
+  vip %>%
+    mutate(
+     variable = ifelse(
+        is.na(var_labels[variable]),
+        variable,
+        var_labels[variable]
+        )
+    ) 
+}
+```
+
+```{r}
+
+vip_elnet2 <- relabel_vip(vip_elnet)
+vip_rf2 <- relabel_vip(vip_rf)
+vip_bt2 <- relabel_vip(vip_bt)
+vip_svm2 <- relabel_vip(vip_svm)
+
+
+plot(vip_bt2, vip_elnet2, vip_rf2, vip_svm2, max_vars = 10)
+
+plot(vip_bt2)
+plot(vip_elnet2)
+plot(vip_rf2)
+plot(vip_svm2)
+
+
+f_bt2 <- plot(vip_bt2) + labs(subtitle = "")
+f_elnet2 <- plot(vip_elnet2) + labs(subtitle = "")
+f_rf2 <- plot(vip_rf2) + labs(subtitle = "")
+f_svm2 <- plot(vip_svm2) + labs(subtitle = "")
+
+#(plot(vip_bt)+ plot(vip_elnet)) /( plot(vip_rf) + plot(vip_svm))
+
+(f_bt2 + f_elnet2) / (f_rf2 + f_svm2)
+
+
+
+
+```
+
+```{r, eval=FALSE}
+newdata
+
+bd_elnet <- predict_parts_break_down(explainer_elnet, new_observation=newdata)
+bd_rf <- predict_parts_break_down(explainer_rf, new_observation=newdata)
+bd_bt <- predict_parts_break_down(explainer_bt, new_observation=newdata)
+bd_svm <- predict_parts_break_down(explainer_svm, new_observation=newdata)
+
+
+p1_bd <- plot(bd_elnet)
+p2_bd <- plot(bd_rf)
+p3_bd <- plot(bd_bt)
+p4_bd <- plot(bd_svm)
+
+(p1_bd + p2_bd) / (p3_bd + p4_bd) 
+
+```
+
+
+```{r}
+relabel_breakdown <- function(bd) {
+  bd %>%
+    mutate(
+     variable = ifelse(
+        is.na(var_labels[variable_name]),
+        variable,
+        paste0(var_labels[variable_name], " = ", round(as.numeric(bd$variable_value), 3))
+        )
+    ) 
+}
+```
+
+
+```{r}
+# Apply to each breakdown data frame
+bd_elnet2 <- relabel_breakdown(bd_elnet)
+bd_rf2    <- relabel_breakdown(bd_rf)
+bd_bt2    <- relabel_breakdown(bd_bt)
+bd_svm2   <- relabel_breakdown(bd_svm)
+
+# Re-plot using the modified data
+p1_bd2 <- plot(bd_elnet2)
+p2_bd2 <- plot(bd_rf2)
+p3_bd2 <- plot(bd_bt2)
+p4_bd2 <- plot(bd_svm2)
+
+(p1_bd2 + p2_bd2) / (p3_bd2 + p4_bd2)
+
+```
+
+
+
+```{r}
+m10 <- alldata %>% filter(period == as.Date("2025-01-01"))
+
+bd_m10 <- predict_parts_break_down(explainer_rf, new_observation=m10)
+
+m10_bd <- plot(bd_m10)
+
+m10_bd
+
+```
+
+```{r}
+m11 <- alldata %>% filter(period == as.Date("2025-02-01"))
+
+bd_m11 <- predict_parts_break_down(explainer_rf, new_observation=m11)
+
+m11_bd <- plot(bd_m11)
+
+m11_bd
+
+```
+
+
+```{r}
+m12 <- alldata %>% filter(period == as.Date("2025-03-01"))
+
+bd_m12 <- predict_parts_break_down(explainer_rf, new_observation=m12)
+
+m12_bd <- plot(bd_m12)
+
+m12_bd
+
+```
+
+```{r}
+m10_bd / m11_bd / m12_bd
+```
+```{r}
+m10_bd + m11_bd + m12_bd
+```
+
+```{r}
+
+
+bd_m10_2 <- relabel_breakdown(bd_m10)
+bd_m11_2 <- relabel_breakdown(bd_m11)
+bd_m12_2 <- relabel_breakdown(bd_m12)
+
+# Re-plot using the modified data
+m10_bd2 <- plot(bd_m10_2)
+m11_bd2 <- plot(bd_m11_2)
+m12_bd2 <- plot(bd_m12_2)
+
+m10_bd2 / m11_bd2 / m12_bd2
+
+```
+
+
+
+```{r}
+library(writexl)
+write_xlsx(list(jan = bd_m10_2, feb = bd_m11_2, mar = bd_m12_2), path = "pdb_april_rf.xlsx")
+
+```
+
+
+```{r}
+m10 <- alldata %>% filter(period == as.Date("2024-04-01"))
+
+bd_m10 <- predict_parts_break_down(explainer_rf, new_observation=m10)
+
+m10_bd <- plot(bd_m10)
+
+m10_bd
+
+```
+
+```{r}
+m11 <- alldata %>% filter(period == as.Date("2024-11-01"))
+
+bd_m11 <- predict_parts_break_down(explainer_rf, new_observation=m11)
+
+m11_bd <- plot(bd_m11)
+
+m11_bd
+
+```
+
+```{r}
+m12 <- alldata %>% filter(period == as.Date("2024-06-01"))
+
+bd_m12 <- predict_parts_break_down(explainer_rf, new_observation=m12)
+
+m12_bd <- plot(bd_m12)
+
+m12_bd
+
+```
+
+```{r}
+m10_bd / m11_bd 
+```
+
+
+```{r, eval=FALSE}
+shap_elnet <- predict_parts_shap(explainer_elnet, new_observation=newdata)
+shap_rf <- predict_parts_shap(explainer_rf, new_observation=newdata)
+shap_bt <- predict_parts_shap(explainer_bt, new_observation=newdata)
+shap_svm <- predict_parts_shap(explainer_svm, new_observation=newdata)
+
+p1_shap <- plot(shap_elnet)
+p2_shap <- plot(shap_rf)
+p3_shap <- plot(shap_bt)
+p4_shap <- plot(shap_svm)
+
+(p1_shap + p2_shap) / (p3_shap + p4_shap) 
+
+```
+
+
+```{r}
+shap_m10 <- predict_parts_shap(explainer_rf, new_observation=m10)
+
+m10_shap <- plot(shap_m10)
+
+m10_shap
+```
+
+```{r}
+shap_m11 <- predict_parts_shap(explainer_rf, new_observation=m11)
+
+m11_shap <- plot(shap_m11)
+
+m11_shap
+```
+
+
+```{r}
+shap_m12 <- predict_parts_shap(explainer_rf, new_observation=m12)
+
+m12_shap <- plot(shap_m12)
+
+m12_shap
+```
+
+
+
+
+```{r}
+m10_shap + m11_shap
+```
+
+
+```{r, eval=FALSE, include=FALSE}
+modelStudio(explainer_bt)
+```
+
